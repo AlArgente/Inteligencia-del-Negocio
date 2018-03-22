@@ -1,0 +1,15 @@
+\select@language {spanish}
+\contentsline {section}{\numberline {1}Introducción}{3}{section.1}
+\contentsline {section}{\numberline {2}Resolución de la práctica}{3}{section.2}
+\contentsline {subsection}{\numberline {2.1}Subidas 1,2,3}{5}{subsection.2.1}
+\contentsline {subsection}{\numberline {2.2}Subida 4}{9}{subsection.2.2}
+\contentsline {subsection}{\numberline {2.3}Subidas 5 y 6}{9}{subsection.2.3}
+\contentsline {subsection}{\numberline {2.4}Subida 7}{10}{subsection.2.4}
+\contentsline {subsection}{\numberline {2.5}Subida 8}{11}{subsection.2.5}
+\contentsline {subsection}{\numberline {2.6}Subida 9}{11}{subsection.2.6}
+\contentsline {subsection}{\numberline {2.7}Subidas 10 y 11}{12}{subsection.2.7}
+\contentsline {subsection}{\numberline {2.8}Subida 12}{13}{subsection.2.8}
+\contentsline {subsection}{\numberline {2.9}Subidas 13, 14}{14}{subsection.2.9}
+\contentsline {subsection}{\numberline {2.10}Subidas 15, 16 y 17}{15}{subsection.2.10}
+\contentsline {section}{\numberline {3}Ideas no realizadas}{16}{section.3}
+\contentsline {section}{\numberline {4}Referencias}{16}{section.4}

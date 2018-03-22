@@ -1,0 +1,395 @@
+---
+title: "KaggleCompetition"
+author: "Alberto Argente"
+date: "19 de diciembre de 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(data.table) # database-like tables
+library(ggplot2) # general plots
+library(highcharter) # interactive plots
+library(DT) # display tables
+library(corrplot) # corr SPLOMs
+library(vcd) # stats for categories
+library(mice) # multiple imputation
+library(Boruta) # estimate variable importance
+library(dplyr)
+```
+
+Leemos el train y el test del dataset.
+
+```{r include=FALSE}
+train <- read.csv(file = "train.csv", stringsAsFactors = FALSE)
+test <- read.csv(file = "test.csv", stringsAsFactors = FALSE)
+```
+
+Una vez leído el dataset voy a proceder a realizar un análisis exploratorio sobre los datos.
+Primero comprobamos qué variables contiene el train y después vamos a ver algunos datos sobre ellas.
+
+```{r, include=FALSE}
+str(train)
+summary(train)
+```
+
+Como la variable a predecir va a ser SalePrice, vamos a detenernos primero a ver algunos datos de esta variables.
+
+```{r, include=FALSE}
+cat("Algunas estadísticas de SalePrice: ")
+summary(train$SalePrice)
+cat("La mediana de Sale Price es: ", median(train$SalePrice))
+
+```
+
+## Preprocesamiento de datos.
+
+Primero guardamos los ID's de las variables de train y de test en unas variables auxiliares y añadimos la columna SalePrice a test ya que no tiene ninguna.
+```{r}
+traid_ID <- train$Id
+test_ID <- test$Id
+test$SalePrice <- NA
+```
+
+### Eliminando outliers.
+
+```{r}
+qplot(train$GrLivArea, train$SalePrice, main = "With Outliers")
+```
+
+He tomado esta variable ya que he visto que es una de las que más correlación tiene con la variable que queremos predecir. Ahora como podemos apreciar en la gráfica hay 2 instacians que podemos considerar totalmente outliers, por tanto voy a eliminarlas.
+
+```{r}
+train <- train[-which(train$GrLivArea > 4000 & train$SalePrice < 3e+05),]
+qplot(train$GrLivArea, train$SalePrice, main = "Without Outliers")
+```
+
+Una vez hemos eliminado los outliers procedo a aplicar el logaritmo sobre SalePrice, primero vemos cómo quedan los datos previamente:
+
+```{r}
+qplot(SalePrice, data = train, bins = 50, main = "Distribución sesgada")
+```
+Ahora aplicamos el logaritmo y visualizamos:
+```{r}
+train$SalePrice <- log(train$SalePrice + 1)
+qplot(SalePrice, data = train, bins = 50, main = "Distribución normal")
+```
+
+
+Una vez hemos hecho esto combinamos test y train y eliminamos la columna de ID que habíamos añadido.
+
+```{r}
+#Combinamos train y test
+test_train <- rbind(train,test)
+#Eliminamos el Id.
+test_train <- test_train[,-1]
+```
+
+### Analizando los missing values.
+
+Una vez tenemos el conjunto de datos preparado voy a analizar los missing values de cada una de las variables.
+
+```{r}
+colSums(is.na(test_train))
+```
+
+Podemos ver que hay variables como PoolQC, Fence o MiscFeature con un 90% da datos como missing values por lo que ahora procedemos a la imputación de datos.
+
+### Imputación de datos.
+
+Para la imputación de datos, como se explica en el documento proporcionado en la plataforma kaggle (data_description), hay muchas variables que tienen valores NA cuando este documento nos está indicando lo contrario que pueden significar 0 o ninguna, por ello la imputación de datos será en su mayoría independiente de las variables.
+
+```{r}
+# Para algunas variables pondemos NA como None.
+for (x in c("Alley", "PoolQC", "MiscFeature", "Fence", "FireplaceQu", "GarageType", 
+    "GarageFinish", "GarageQual", "GarageCond", "BsmtQual", "BsmtCond", 
+    "BsmtExposure", "BsmtFinType1", "BsmtFinType2", "MasVnrType")) {
+    test_train[is.na(test_train[,x]), x] = "None"
+}
+
+# Agrupamos por vecindario.
+temp <- aggregate(LotFrontage ~ Neighborhood, data = test_train, median)
+temp2 <- c()
+for(str in test_train$Neighborhood[is.na(test_train$LotFrontage)]){
+  temp2 <- c(temp2, which(temp$Neighborhood == str))
+}
+test_train$LotFrontage[is.na(test_train$LotFrontage)] = temp[temp2, 2]
+
+# Reemplazamos los missing data por 0.
+for (col in c("GarageYrBlt", "GarageArea", "GarageCars", "BsmtFinSF1", 
+    "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF", "BsmtFullBath", "BsmtHalfBath", 
+    "MasVnrArea")) {
+  test_train[is.na(test_train[, col]), col] = 0
+}
+
+
+# Reemplazamos los NA de MsZoning por RL
+test_train$MSZoning[is.na(test_train$MSZoning)] = "RL"
+
+## Eliminamos Utilities porque tiene pocas variedades
+test_train <- test_train[,-9]
+
+## Reemplazamos los missing values de Functional por "Typ"
+test_train$Functional[is.na(test_train$Functional)] = "Typ"
+
+## Reemplazamos lo smissing value sde Electrical por "SBrkr"
+test_train$Electrical[is.na(test_train$Electrical)] = "SBrkr"
+
+## Reemplazamos los missing values de KitchenQual por "TA"
+test_train$KitchenQual[is.na(test_train$Electrical)] = "TA"
+
+## Reemplazamos los missing values de SaleType por "WD"
+test_train$SaleType[is.na(test_train$SaleType)] = "WD"
+
+## Reemplazamos los missing values de Exterior1st y Exterior2nd por "VinylSd"
+test_train$Exterior1st[is.na(test_train$Exterior1st)] = "VinylSd"
+test_train$Exterior2nd[is.na(test_train$Exterior2nd)] = "VinylSd"
+
+## Una vez hemos hecho esto no debe haber missing values salvo los NA de SalePrice de la parte de test
+colSums(is.na(test_train))
+```
+
+Una vez eliminados los missing values convertmos a categóricas algunas variables que salen como numéricas pero realmente son categóricas como por ej MoSold o YrSold.
+```{r}
+test_train$MSSubClass <- as.character(test_train$MSSubClass)
+test_train$OverallCond <- as.character(test_train$OverallCond)
+test_train$MoSold <- as.character(test_train$MoSold)
+test_train$YrSold <- as.character(test_train$YrSold)
+```
+
+Labeling encoding:
+
+```{r}
+cols = c("FireplaceQu", "BsmtQual", "BsmtCond", "GarageQual", "GarageCond", 
+    "ExterQual", "ExterCond", "HeatingQC", "PoolQC", "KitchenQual", "BsmtFinType1", 
+    "BsmtFinType2", "Functional", "Fence", "BsmtExposure", "GarageFinish", 
+    "LandSlope", "LotShape", "PavedDrive", "Street", "Alley", "CentralAir", 
+    "MSSubClass", "OverallCond", "YrSold", "MoSold")
+  
+FireplaceQu = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+BsmtQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+BsmtCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+ExterQual = c("Po", "Fa", "TA", "Gd", "Ex")
+ExterCond = c("Po", "Fa", "TA", "Gd", "Ex")
+HeatingQC = c("Po", "Fa", "TA", "Gd", "Ex")
+PoolQC = c("None", "Fa", "TA", "Gd", "Ex")
+KitchenQual = c("Po", "Fa", "TA", "Gd", "Ex")
+BsmtFinType1 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+BsmtFinType2 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+Functional = c("Sal", "Sev", "Maj2", "Maj1", "Mod", "Min2", "Min1", "Typ")
+Fence = c("None", "MnWw", "GdWo", "MnPrv", "GdPrv")
+BsmtExposure = c("None", "No", "Mn", "Av", "Gd")
+GarageFinish = c("None", "Unf", "RFn", "Fin")
+LandSlope = c("Sev", "Mod", "Gtl")
+LotShape = c("IR3", "IR2", "IR1", "Reg")
+PavedDrive = c("N", "P", "Y")
+Street = c("Pave", "Grvl")
+Alley = c("None", "Pave", "Grvl")
+MSSubClass = c("20", "30", "40", "45", "50", "60", "70", "75", "80", "85", 
+    "90", "120", "150", "160", "180", "190")
+OverallCond = NA
+MoSold = NA
+YrSold = NA
+CentralAir = NA
+
+levels = list(FireplaceQu, BsmtQual, BsmtCond, GarageQual, GarageCond, 
+    ExterQual, ExterCond, HeatingQC, PoolQC, KitchenQual, BsmtFinType1, 
+    BsmtFinType2, Functional, Fence, BsmtExposure, GarageFinish, LandSlope, 
+    LotShape, PavedDrive, Street, Alley, CentralAir, MSSubClass, OverallCond, 
+    YrSold, MoSold)
+i = 1
+for (c in cols) {
+    if (c == "CentralAir" | c == "OverallCond" | c == "YrSold" | c == "MoSold") {
+        test_train[, c] = as.numeric(factor(test_train[, c]))
+    } else {
+      test_train[, c] = as.numeric(factor(test_train[, c], levels = levels[[i]]))
+      #cat("Estoy en else", c, "\n")
+    }
+    i = i + 1
+}
+```
+
+Añadimos una nueva característica: 
+
+```{r}
+test_train$TotalSF <- test_train$TotalBsmtSF + test_train$X1stFlrSF + test_train$X2ndFlrSF
+```
+
+Obteniendo las categorías dummy.
+
+```{r}
+# Primero obtenemos el tipo.
+clases_caracteristicas <- sapply(names(test_train), function(x) { 
+  class(test_train[[x]])
+})
+
+numeric_vars <- names(clases_caracteristicas[clases_caracteristicas != "character"])
+
+categorical_vars <- names(clases_caracteristicas[clases_caracteristicas == "character"])
+
+library(caret)
+dummies <- dummyVars(~., test_train[categorical_vars])
+categoricas <- predict(dummies, test_train[categorical_vars])
+```
+
+Una vez tenemos todo esto vamos a aplicar la transformación Box-Cox para corregir algunos errores de la distribución y para corregir la no linealidad de los datos, es decir, mejorar la correlación.
+
+```{r}
+library(MASS)
+library(moments)
+skewed_vars<- sapply(numeric_vars, function(x) {
+    skewness(test_train[[x]], na.rm = TRUE)
+})
+
+## Mantenemos solo aquellas que superen 0.75 de skewness
+skewed_vars <- skewed_vars[abs(skewed_vars) > 0.75]
+
+## Transformamos estas variables con la transformación Box-Cox
+for (x in names(skewed_vars)) {
+  bc = BoxCoxTrans(test_train[[x]], lambda = 0.15)
+  test_train[[x]] <- predict(bc, test_train[[x]])
+}
+```
+
+Una vez hecho esto recostruimos el dataframe con todo el preprocesado.
+
+```{r}
+test_train <- cbind(test_train[numeric_vars], categoricas)
+
+dim(test_train)
+```
+
+
+
+# Construcción de modelos y evaluación
+
+Dividimos en train y test otra vez para poder evaluar los modelos:
+
+```{r}
+training <- test_train[1:1458, ]
+testing <- test_train[1459:2917, ]
+# Partición para el entrenamiendo de los modelos
+pTrain <- createDataPartition(y = training$SalePrice, p = 0.8, list = FALSE)
+Training <- training[pTrain, ]
+Validation <- training[-pTrain, ]
+```
+
+
+## Modelos
+
+### Gradient Boosting
+Como primer modelo he elegido Random Forest.
+
+```{r}
+library(Metrics)
+library(gbm)
+library(xgboost)
+```
+
+```{r}
+set.seed(371)
+gbmFit <- gbm(SalePrice ~., data = Training, shrinkage = 0.01, interaction.depth=3,
+              bag.fraction = 0.5, n.minobsinnode = 10,
+              cv.folds = 5, verbose=FALSE, distribution = "gaussian", n.trees = 3000)
+
+predsp1 <- predict(gbmFit, newdata = Validation)
+rmse(Validation$SalePrice, predsp1)
+```
+0.113949
+
+```{r}
+set.seed(371)
+gbmFited <- gbm(SalePrice ~., data = training, shrinkage = 0.01, interaction.depth=3,
+              bag.fraction = 0.5, train.fraction = 1,  n.minobsinnode = 10,
+              cv.folds = 5, verbose=FALSE, distribution = "gaussian", n.trees = 3000)
+predsGBM <- exp(predict(gbmFited, newdata = testing)) - 1
+```
+
+Guardamos los resultados de GBM.
+
+```{r}
+dfGBM <- data.frame(Id = test_ID, SalePrice = predsGBM)
+write.csv(dfGBM, "1stGBM.csv", row.names = FALSE)
+```
+
+### XGBoost
+
+Entrenamos el modelo para obtener los parámetros
+```{r}
+library(xgboost)
+set.seed(193)
+## Preparando la matriz
+dtrain <- xgb.DMatrix(data = as.matrix(Training[,-59]), label = as.matrix(Training$SalePrice))
+dtest <- xgb.DMatrix(data = as.matrix(Validation[,-59]), label = as.matrix(Validation$SalePrice))
+
+## Parámetros para empezar
+
+params <- list(booster = "gbtree", objetive = "reg:linear", eta = 0.01, gamma = 0.01,
+               max_depth = 3, min_child_weight = 1.782, subsample = 0.5213,
+               colsample_bytree=0.4578, eval_metric='rmse', nthread = 4, verbose=TRUE, seed=371,
+               alpha = 0.4640, lambda = 0.8574, silent = 1)
+
+xgbcv <- xgb.cv( params = params, data = dtrain, nrounds = 3200, nfold = 5, stratified = T, print_every_n = 100,
+                 early_stopping_rounds = 10, maximize =F, prediction = TRUE)
+xgbmatrix <- xgbcv$pred
+#predcv <- predict(xgbcv$pred, newdata = as.matrix(Validation[,-59]))
+predcv <- predict(as.matrix(xgbmatrix), newdata = as.matrix(Validation[,-59]))
+rmse(Validation$SalePrice, predcv)
+
+```
+
+```{r}
+xgbtrain <- xgb.DMatrix(data = as.matrix(training[,-59]), label = as.matrix(training$SalePrice))
+params <- list(booster = "gbtree", objetive = "reg:linear", eta = 0.01, gamma = 0.01,
+               max_depth = 3, min_child_weight = 1.782, subsample = 0.5213,
+               colsample_bytree=0.4578, eval_metric='rmse', nthread = 4, verbose=TRUE, seed=371,
+               alpha = 0.4640, lambda = 0.8574, silent = 1)
+
+xgbcvFited <- xgb.cv( params = params, data = xgbtrain, nrounds = 3200, nfold = 5, stratified = T, print_every_n = 100,
+                 early_stopping_rounds = 10, maximize =F, prediction = TRUE)
+```
+
+Ejecutamos xgb sobre el training
+
+```{r}
+set.seed(371)
+xgbFit <- xgboost(data = dtrain, nfold = 5, labels = as.matrix(Training$SalePrice),
+                  nrounds = 2200, verbose = FALSE, objetive = "reg:linear", eval_metric = 'rmse',
+                  nthread = 4, eta = 0.051, gamma = 0.0468, max_depth = 6, min_child_weight = 1.782,
+                  subsample = 0.5213, colsample_bytree = 0.4588, silent = 1, alpha = 0.4640, lambda = 0.8574)
+pred <- predict(xgbFit, newdata = as.matrix(Validation[,-59]))
+rmse(Validation$SalePrice, pred)
+```
+0.0979917
+0.09708226
+Una vez tenemos los resultados, los almacenamos para guardarlos.
+
+```{r}
+set.seed(371)
+xgbtrain <- xgb.DMatrix(data = as.matrix(training[,-59]), label = as.matrix(training$SalePrice))
+
+xgbFit <- xgboost(data = xgbtrain, nfold = 5, labels = as.matrix(training$SalePrice),
+                  nrounds = 2200, verbose = FALSE, objetive = "reg:linear", eval_metric = 'rmse',
+                  nthread = 4, eta = 0.05, gamma = 0.01, max_depth = 6, min_child_weight = 1.78171,
+                  subsample = 0.5213, colsample_bytree = 0.4603, silent = 1, alpha = 0.4640, lambda = 0.8574)
+predXGB <- exp(predict(xgbFit, newdata = as.matrix(testing[, -59]))) - 1 
+```
+
+Guardamos los resultados
+```{r}
+df <- data.frame(Id = test_ID, SalePrice = predXGB)
+write.csv(df, "NewXgboost.csv", row.names = FALSE)
+```
+
+Ensamble de los modelos utilizados.
+```{r}
+rmse(Validation$SalePrice, (pred.rf + pred + predsp1)/3)
+```
+
+Ensamble de los algoritmos utilizados.
+```{r}
+preds.ensamble <- 0.5 * predXGB + 0.5 * predsGBM
+ensamble.df<- data.frame(Id = test_ID, SalePrice = preds.ensamble)
+write.csv(ensamble.df, "2stEnsambleGbmRfXgb.csv", row.names = FALSE)
+```
