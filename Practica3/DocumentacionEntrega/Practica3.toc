@@ -1,6 +1,6 @@
-\select@language {spanish}
-\contentsline {section}{\numberline {1}Introducción}{3}{section.1}
-\contentsline {section}{\numberline {2}Resolución de la práctica}{3}{section.2}
+\babel@toc {spanish}{}
+\contentsline {section}{\numberline {1}Introducci\IeC {\'o}n}{3}{section.1}
+\contentsline {section}{\numberline {2}Resoluci\IeC {\'o}n de la pr\IeC {\'a}ctica}{3}{section.2}
 \contentsline {subsection}{\numberline {2.1}Subidas 1,2,3}{5}{subsection.2.1}
 \contentsline {subsection}{\numberline {2.2}Subida 4}{9}{subsection.2.2}
 \contentsline {subsection}{\numberline {2.3}Subidas 5 y 6}{9}{subsection.2.3}
